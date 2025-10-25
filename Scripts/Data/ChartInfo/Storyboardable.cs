@@ -200,8 +200,8 @@ namespace JANOARG.Shared.Data.ChartInfo
         public Storyboardable GetStoryboardableObject(float time) 
         {
             cachedDisplayObject ??= (Storyboardable)MemberwiseClone();
-            Storyboardable obj = cachedDisplayObject;
-            CopyInto(obj);
+            CopyInto(cachedDisplayObject);
+            var obj = cachedDisplayObject;
 
             foreach (TimestampType timestampType in timestampTypes)
             {
@@ -245,6 +245,7 @@ namespace JANOARG.Shared.Data.ChartInfo
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public virtual void CopyInto(Storyboardable dst)
         {
+            dst.Storyboard = Storyboard;
             dst.CurrentTime = CurrentTime;
             dst.CurrentValues = CurrentValues;
         }
@@ -388,7 +389,6 @@ namespace JANOARG.Shared.Data.ChartInfo
         {
             base.CopyInto(dst);
             var d = (DirtyTrackedStoryboardable)dst;
-            d.Storyboard = Storyboard;
             d.IsDirty = IsDirty;
             d._TimestampsByID = _TimestampsByID;
         }

@@ -347,28 +347,30 @@ namespace JANOARG.Shared.Data.ChartInfo
                     Steps.Add(new LaneStepManager());
 
                 LaneStep step = (LaneStep)Current.LaneSteps[a].GetStoryboardableObject(pos);
+                var curr = Steps[a];
 
-                if (step.Offset != Steps[a].CurrentStep?.Offset)
+                if (step.Offset != curr.CurrentStep?.Offset)
                 {
-                    Steps[a].Offset = main.Song.Timing.ToSeconds(step.Offset);
                     force = true;
                 }
 
-                if (step.Speed != Steps[a].CurrentStep?.Speed)
+                if (step.Speed != curr.CurrentStep?.Speed)
                     force = true;
 
-                if (force)
+                if (force || step.ForceCalculation())
                 {
+                    curr.Offset = main.Song.Timing.ToSeconds(step.Offset);
                     LaneStepManager prev = a < 1 ? new LaneStepManager() : Steps[a - 1];
-                    Steps[a].Distance = prev.Distance + CurrentSpeed * step.Speed * (Steps[a].Offset - prev.Offset);
+                    curr.Distance = prev.Distance + CurrentSpeed * step.Speed * (curr.Offset - prev.Offset);
                 }
+                step.DoneCalculation();
 
-                Steps[a].CurrentStep = step;
+                curr.CurrentStep = step;
 
                 stepCount += float.IsNaN(offset)
-                    ? 1 : Mathf.CeilToInt((offset == Steps[a].Offset ? Steps[a].Offset > time ? 1 : 0 : Mathf.Clamp01((time - Steps[a].Offset) / (offset - Steps[a].Offset))) * (step.IsLinear ? 1 : 16));
+                    ? 1 : Mathf.CeilToInt((offset == curr.Offset ? curr.Offset > time ? 1 : 0 : Mathf.Clamp01((time - curr.Offset) / (offset - curr.Offset))) * (step.IsLinear ? 1 : 16));
 
-                offset = Steps[a].Offset;
+                offset = curr.Offset;
             }
 
             while (Steps.Count > Current.LaneSteps.Count)
