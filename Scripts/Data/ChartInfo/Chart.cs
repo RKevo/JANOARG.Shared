@@ -521,7 +521,7 @@ namespace JANOARG.Shared.Data.ChartInfo
     }
 
     [System.Serializable]
-    public class LanePosition
+    public struct LanePosition
     {
         [FormerlySerializedAs("StartPos")] public Vector2 StartPosition;
         [FormerlySerializedAs("EndPos")]   public Vector2 EndPosition;
