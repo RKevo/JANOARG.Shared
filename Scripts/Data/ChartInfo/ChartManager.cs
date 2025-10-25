@@ -486,7 +486,7 @@ namespace JANOARG.Shared.Data.ChartInfo
             }
             else
             {
-                int[] tris = CurrentMesh.triangles;
+                int[] tris = cached_tris;
                 CurrentMesh.Clear();
                 CurrentMesh.SetVertices(nat_vert);
                 CurrentMesh.SetUVs(0, nat_uv);
