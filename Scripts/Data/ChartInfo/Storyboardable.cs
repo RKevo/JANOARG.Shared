@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.Serialization;
 
@@ -51,7 +52,7 @@ namespace JANOARG.Shared.Data.ChartInfo
     public class Storyboard : IList<Timestamp>
     {
         public  List<Timestamp>              Timestamps = new();
-        private Dictionary<int, Timestamp[]> _TypeCache = new();
+        private TypeCache _type_cache = TypeCache.Create();
 
         public int Count => Timestamps.Count;
         public bool IsReadOnly => false;
@@ -71,20 +72,29 @@ namespace JANOARG.Shared.Data.ChartInfo
             Timestamps.Add(timestamp);
             Timestamps.Sort((x, y) => x.Offset.CompareTo(y.Offset));
 
-            _TypeCache.Clear();
+            _type_cache.Invalidate();
         }
         
         public void InvalidateCache()
         {
-            _TypeCache.Clear();
+            _type_cache.Invalidate();
         }
 
         public Timestamp[] FromType(TimestampIDs type)
         {
-            if (!_TypeCache.TryGetValue((int)type, out Timestamp[] array))
+            if (!_type_cache.TryGet(type, out Timestamp[] array))
             {
-                array = Timestamps.Where(x => x.ID == type).ToArray();
-                _TypeCache[(int)type] = array;
+                var ret = new List<Timestamp>();
+                for (int i = 0; i < Timestamps.Count; i++)
+                {
+                    var stmp = Timestamps[i];
+                    if (stmp.ID == type)
+                    {
+                        ret.Add(stmp);
+                    }
+                }
+                array = ret.ToArray();
+                _type_cache.Set(type, array);
             }
             return array;
         }
@@ -139,6 +149,43 @@ namespace JANOARG.Shared.Data.ChartInfo
         {
             return Timestamps.GetEnumerator();
         }
+        protected struct TypeCache
+        {
+            static readonly int upper = (int)Enum.GetValues(typeof(TimestampIDs)).Cast<TimestampIDs>().Max();
+            static readonly int lower = (int)Enum.GetValues(typeof(TimestampIDs)).Cast<TimestampIDs>().Min();
+            Timestamp[][] backing;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public static TypeCache Create()
+            {
+                return new TypeCache
+                {
+                    backing = new Timestamp[upper + 1 - lower][]
+                };
+            }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly bool TryGet(TimestampIDs id, out Timestamp[] ret)
+            {
+                var idx = (int)id - lower;
+                var val = backing[idx];
+                if (val is not null)
+                {
+                    ret = val;
+                    return true;
+                }
+                ret = null;
+                return false;
+            }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly void Set(TimestampIDs id, Timestamp[] entry)
+            {
+                backing[(int)id - lower] = entry;
+            }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly void Invalidate()
+            {
+                Array.Clear(backing, 0, upper);
+            }
+        }
     }
 
     public abstract class Storyboardable
@@ -148,10 +195,13 @@ namespace JANOARG.Shared.Data.ChartInfo
         public Storyboard Storyboard = new();
 
         public abstract TimestampType[] timestampTypes { get; }
+        protected Storyboardable cachedDisplayObject;
 
         public Storyboardable GetStoryboardableObject(float time) 
         {
-            Storyboardable obj = (Storyboardable)MemberwiseClone();
+            cachedDisplayObject ??= (Storyboardable)MemberwiseClone();
+            Storyboardable obj = cachedDisplayObject;
+            CopyInto(obj);
 
             foreach (TimestampType timestampType in timestampTypes)
             {
@@ -187,6 +237,17 @@ namespace JANOARG.Shared.Data.ChartInfo
         protected float[] CurrentValues;
 
         protected float CurrentTime;
+
+        /// <remarks>
+        /// Let's see if this is redundant
+        /// </remarks>
+        /// <param name="dst"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public virtual void CopyInto(Storyboardable dst)
+        {
+            dst.CurrentTime = CurrentTime;
+            dst.CurrentValues = CurrentValues;
+        }
 
         public virtual void Advance(float time)
         {
@@ -273,37 +334,37 @@ namespace JANOARG.Shared.Data.ChartInfo
 
         public override void Advance(float time)
         {
-            if (CurrentValues == null) 
+            if (CurrentValues == null)
             {
                 CurrentValues = new float[srTimestampIDValues.Length];
                 InitializeTimestampGroups();
-            
+
                 foreach (TimestampType timestampType in timestampTypes)
                     CurrentValues[(int)timestampType.ID] = timestampType.StoryboardGetter(this);
             }
-            
-            foreach(TimestampType timestampType in timestampTypes)
+
+            foreach (TimestampType timestampType in timestampTypes)
             {
                 float value = CurrentValues[(int)timestampType.ID];
-                
+
                 if (!_TimestampsByID.TryGetValue(timestampType.ID, out Queue<Timestamp> timestamps))
                     continue;
-                    
-                while (timestamps.Count > 0) 
+
+                while (timestamps.Count > 0)
                 {
                     Timestamp timestamp = timestamps.Peek();
 
                     // If there's no timestamp or it's not yet the start of the next timestamp
-                    if (time < timestamp.Offset && CurrentTime < timestamp.Offset) 
+                    if (time < timestamp.Offset && CurrentTime < timestamp.Offset)
                         break;
-                    
+
                     // Otherwise
                     if (time < timestamp.Offset + timestamp.Duration)
                     {
                         // Lerp from previous value if it's not NaN
-                        if (!float.IsNaN(timestamp.From)) 
+                        if (!float.IsNaN(timestamp.From))
                             CurrentValues[(int)timestampType.ID] = value = timestamp.From;
-                        
+
                         // Lerp to target value
                         value = Mathf.LerpUnclamped(value, timestamp.Target, timestamp.Easing.Get((time - timestamp.Offset) / timestamp.Duration));
                         IsDirty = true;
@@ -322,6 +383,14 @@ namespace JANOARG.Shared.Data.ChartInfo
             CurrentTime = time;
         }
         
-        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override void CopyInto(Storyboardable dst)
+        {
+            base.CopyInto(dst);
+            var d = (DirtyTrackedStoryboardable)dst;
+            d.Storyboard = Storyboard;
+            d.IsDirty = IsDirty;
+            d._TimestampsByID = _TimestampsByID;
+        }
     }
 }
